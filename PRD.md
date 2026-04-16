@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-InstaLLM (“installm”) is a command-line tool (CLI) that makes it easy to download one or more open-source LLMs from the Hugging Face Hub and immediately expose them as a local (or remote) HTTP API that looks like the OpenAI API, so existing tooling (especially OpenAI-compatible clients and agent frameworks like LangChain**) can use your models with little or no code changes. This API must support streaming, tool calling, and structured outputs (JSON results), while authentication and metrics are optional. *(Streaming = the server sends tokens/events as they’re generated; tool calling = the model returns a structured “call this function with these arguments” object; structured output = the model returns valid JSON that matches a schema you define.)*
+InstaLLM (“installm”) is a command-line tool (CLI) that makes it easy to download one or more open-source LLMs from the Hugging Face Hub and immediately expose them as an HTTP API that looks like the OpenAI API—**local or remote** (configurable bind address)—so existing tooling (especially the **OpenAI Python SDK** and agent frameworks like LangChain**) can use your models with little or no code changes. **`installm up` is oriented toward a daemon-style deployment** suitable for laptops and VMs. This API must support streaming, tool calling, and structured outputs (JSON results), while authentication and metrics are optional. *(Streaming = the server sends tokens/events as they’re generated; tool calling = the model returns a structured “call this function with these arguments” object; structured output = the model returns valid JSON that matches a schema you define.)*
 
 Two existing projects give strong design patterns you should reuse:
 
@@ -55,7 +55,7 @@ To maximize compatibility with real tooling, your MVP should implement (or proxy
 
 * Streaming (SSE) for both Chat Completions and Responses.
 * Tool calling as an API feature: requests can include tools, and responses can include `tool_calls` in the correct OpenAI-shaped structure.
-* Structured outputs: callers can request JSON output, ideally via OpenAI’s `response_format` (Chat Completions) and/or `text.format` (Responses API patterns), with schema enforcement when supported.
+* Structured outputs: callers can request JSON output, ideally via OpenAI’s `response_format` (Chat Completions) and/or `text.format` (Responses API patterns), with **schema enforcement when the backend supports it**, and **best-effort validate-and-retry** otherwise.
 
 ### Who executes tools: you (or LangChain), not the model server
 
@@ -80,6 +80,26 @@ Server-side tool orchestration can be a future “optional” feature (`response
 
 You should still design “attachment points” (middleware/hooks) so these can be added later without breaking the core CLI or request/response schemas.
 
+### Baseline product decisions (locked)
+
+These choices set defaults and scope for implementation (formerly captured as informal “open questions”; consolidated here).
+
+* **Networking:** Support **local and remote** use from day one: configurable **bind address** (including `0.0.0.0` for VMs and servers), not localhost-only.
+* **Process model:** **`installm up` targets a daemon-style deployment** (service keeps running after the terminal closes), suitable for laptops and remote VMs. The exact mechanism (e.g. supervisor process, platform service) is an implementation detail.
+* **Structured outputs:** **Best-effort** when constrained decoding is unavailable; the **validate-and-retry** loop described later is an acceptable product bar. There is **no** requirement to guarantee schema-valid output on every response when the backend cannot enforce it.
+* **Multi-model:** **Simultaneous** models; the gateway **routes by the request `model` field** (resolved from Hugging Face id, revision, or alias).
+* **Platforms:** **Aim for Windows, macOS, and Linux**; resolve practical gaps as they appear (for example, if a backend is Linux-only, document it and decide per release).
+* **Implementation language:** **Python** for the CLI and gateway for now; optional thin Rust or Go layers later.
+* **Distribution:** Optimize for **user convenience**; the goal is that **installing `installm` leads to a usable stack** (exact bundling—extras, installers, optional runtime hooks—is TBD). Working name: **`installm`**.
+* **Hardware:** **GPU support is required** for the intended full-quality path; **automatic backend selection** is explicitly **deferred** until implementation uncovers constraints.
+* **Embeddings:** The same **`installm up --model`** flow as chat models. If a client calls **`/v1/embeddings`** with a model that is not embedding-capable, return **HTTP 400** with a clear message (no silent fallback to another model).
+* **Model identifiers:** **`repo_id`**, optional **`@revision`** suffix, and **user-defined aliases** are in scope for MVP.
+* **Compatibility target:** The **OpenAI Python SDK** is the **primary** reference client; meeting that bar is expected to cover **LangChain** and similar OpenAI-compatible stacks.
+* **Ports and lifecycle:** Use **conventional, documented defaults** (for example a single gateway port such as **8000**, configurable). **`installm down` stops only processes that this installm instance started** (tracked in manifest or equivalent). **Logging:** defer detail; direction is **one combined log** with optional filters (for example time range) later.
+* **Testing:** **CI** focuses on **contract tests** and paths that do not require a GPU. **GPU-heavy integration** is validated **manually** on a developer machine (for example RTX 4060).
+* **API contract:** Follow the **endpoint set and shapes defined in this PRD** and the cited OpenAI / Open Responses references.
+* **Hugging Face scope (MVP):** **No gated models** (no `HF_TOKEN` / license-gated download flows required for the first release); public-repo and standard-cache assumptions only.
+
 ---
 
 ## System architecture and core workflows
@@ -93,8 +113,8 @@ A practical, evolvable architecture is:
 * downloads models (HF cache / local directory)
 * manages a local manifest of “installed models”
 * starts/stops one or more inference backends
-* (optional) starts a gateway server
-* prints: Base URL, ready-to-copy environment variables, and “try it with curl” commands
+* starts the gateway and backends as a **supervised / daemon-appropriate** deployment (survives terminal close on supported setups)
+* prints: Base URL, bind address, ready-to-copy environment variables, and “try it with curl” commands
 
 #### `installm` gateway (data plane)
 
@@ -155,6 +175,7 @@ This section is written so you and Cursor can treat it as the “contract.” It
 * Be strict on output shape *(responses must match spec closely)*.
 * Be liberal in input *(accept extra fields and ignore them when safe)*.
 * Where the spec is large (e.g., Responses API), implement an explicit subset and return a clear `400` error for unsupported fields.
+* **Primary client target:** validate behavior against the **OpenAI Python SDK** first; other stacks (e.g. LangChain) that speak the same OpenAI-compatible HTTP shapes should follow naturally.
 
 ### Endpoints to implement in MVP
 
@@ -184,7 +205,7 @@ This is explicitly what OpenAI documents for list models.
 
 #### InstaLLM mapping recommendation
 
-* `id`: use the Hugging Face model ID, optionally with revision suffix (e.g., `org/model@rev`) if you support pinning.
+* `id`: canonical **Hugging Face repo id**, optionally with **revision suffix** (e.g. `org/model@rev`) when pinned. **User-defined aliases** map to one canonical id for requests and listing (list behavior: expose alias, canonical id, or both—pick one convention and document it in implementation).
 * `created`: a timestamp when the model was added to your installm manifest (not necessarily HF publish time).
 * `owned_by`: `installm` (or `local`).
 
@@ -197,7 +218,7 @@ OpenAI defines:
 
 #### InstaLLM constraints
 
-Embedding support depends on having an embedding-capable backend/model. If the selected model is not an embedding model, return HTTP `400` with a clear error message (`"model does not support embeddings"`).
+Embedding support depends on having an embedding-capable backend/model. Models are brought up with the same **`installm up --model`** flow as chat models. If the resolved model is not embedding-capable (for example a chat-only checkpoint), return HTTP `400` with a clear error message (e.g. `"model does not support embeddings"`). Do **not** silently fall back to another model.
 
 ### `POST /v1/chat/completions` schema (MVP subset)
 
@@ -382,8 +403,8 @@ If you choose a backend that supports constrained decoding for JSON schema, you 
 
 Implement:
 
-* `response_format.type="json_object"`: guarantee valid JSON.
-* `response_format.type="json_schema"` with `strict`: guarantee JSON matches the schema when the backend supports it, otherwise perform fallback.
+* `response_format.type="json_object"`: **guarantee valid JSON** when the backend can enforce it; otherwise **best-effort** via instruction + parse + **validate-and-retry** as below.
+* `response_format.type="json_schema"` with `strict`: **guarantee** JSON matches the schema **when the backend supports constrained decoding**; otherwise use **best-effort** validate-and-retry (no hard guarantee on every response).
 
 #### Fallback strategy (when no constrained decoding is available)
 
@@ -453,6 +474,8 @@ InstaLLM’s gateway would route requests based on the `model` field.
 
 For your “production-ready” framing, Design B is usually easier to evolve toward Kubernetes/cluster deployment later.
 
+**MVP commitment:** multi-model means **several models can be up at once** and the gateway **routes by `model` name** (canonical HF id, revision suffix, or alias). Single-model-only or “switch active model” is **not** the MVP bar.
+
 ---
 
 ## Phased implementation plan with testable milestones
@@ -465,6 +488,7 @@ Each phase below can be built and tested independently. “MVP weeks” are roug
 
 * Repo scaffold, CLI skeleton, configuration file format, local state manifest.
 * `installm --help` shows commands and examples.
+* Configuration for **listen/bind address** (local vs `0.0.0.0`) and **daemon-oriented** `up` / `down` (see baseline decisions).
 
 #### CLI commands (minimum)
 
@@ -479,6 +503,7 @@ installm logs
 
 * Unit test: manifest read/write.
 * Smoke test: `installm ls` works on fresh machine.
+* CI does **not** assume a GPU; GPU scenarios are **manual** until otherwise specified.
 
 **Estimate:** 1 week.
 
@@ -652,21 +677,6 @@ flowchart LR
 ```
 
 This diagram encodes the main “responsibility split”: InstaLLM serves the API and formats tool calls; the client/app executes tools and sends results back.
-
----
-
-## Open questions for you
-
-These answers won’t block Cursor from starting *(the plan above still works)*, but they determine defaults and scope. I’m writing them in non-technical terms.
-
-1. Do you want InstaLLM to be local-first *(runs on your laptop, default `localhost`)*, or should it also be easy to run on a remote server *(bind to `0.0.0.0`)* from day one?
-2. When you say “one command,” do you mean:
-
-   * **(A)** one command starts the server and I keep the terminal open, or
-   * **(B)** one command installs and starts a background service (daemon) that keeps running after the terminal closes *(like how many local model tools behave)*?
-3. For “structured responses,” do you require strict schema enforcement *(server must guarantee valid schema every time)*, or is “best-effort with retries” acceptable when strict enforcement isn’t available?
-4. For multiple models, do you need them available simultaneously *(route by model name)*, or is “I can switch which model is served” acceptable for MVP?
-5. Which environments must you support for MVP: Windows, macOS, Linux, or “Linux only” is acceptable initially?
 
 ---
 
