@@ -1,0 +1,54 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "installm"
+version = "0.1.0"
+description = "One-command deployment of OpenAI-compatible APIs for open-source LLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "SAAD Muhammad Abdur Rahman"}]
+
+dependencies = [
+    "click>=8.1",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pydantic>=2.0",
+    "huggingface-hub>=0.23",
+    "pyyaml>=6.0",
+    "httpx>=0.27",
+    "sse-starlette>=1.6",
+]
+
+[project.optional-dependencies]
+transformers = [
+    "torch>=2.0",
+    "transformers>=4.40",
+    "accelerate>=0.30",
+    "sentencepiece>=0.1.99",
+]
+vllm = [
+    "vllm>=0.4",
+]
+ollama = []
+all = [
+    "installm[transformers,vllm]",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+    "respx>=0.21",
+]
+
+[project.scripts]
+installm = "installm.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
