@@ -14,6 +14,10 @@ app = FastAPI(
     description="OpenAI-compatible API gateway for open-source LLMs",
 )
 
+# Auth middleware (must be added before CORS so it runs after CORS)
+from installm.gateway.middleware import AuthMiddleware
+app.add_middleware(AuthMiddleware)
+
 # Allow all origins so the API can be used from any client
 app.add_middleware(
     CORSMiddleware,

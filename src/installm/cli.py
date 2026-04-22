@@ -25,7 +25,9 @@ def cli():
               help="Port for the API server.")
 @click.option("--backend", default=None, type=click.Choice(["ollama", "transformers", "vllm", "llamacpp"]),
               help="Force a specific backend (auto-detected if omitted).")
-def up(model, host, port, backend):
+@click.option("--require-auth", is_flag=True, default=False,
+              help="Require API key authentication for all requests.")
+def up(model, host, port, backend, require_auth):
     """Download model(s) and start the API server.
 
     Example:
@@ -47,6 +49,12 @@ def up(model, host, port, backend):
         click.echo(f">> Selected backend: {be_name}")
         add_model(m, backend=be_name)
         loaded[m] = be_name
+
+    # Enable auth if requested
+    import os
+    if require_auth:
+        os.environ["INSTALLM_REQUIRE_AUTH"] = "1"
+        click.echo(">> Authentication enabled. Use 'installm auth create' to generate keys.")
 
     click.echo(f"\n>> Starting API server on {host}:{port}...")
     set_server_info(host, port)
@@ -161,6 +169,66 @@ def logs():
         lines = f.readlines()
         for line in lines[-50:]:
             click.echo(line, nl=False)
+
+
+# --- Auth key management ---
+
+@cli.group()
+def auth():
+    """Manage API key authentication."""
+
+
+@auth.command(name="create")
+@click.option("--label", "-l", default=None, help="Optional label for the key.")
+def auth_create(label):
+    """Generate a new API key.
+
+    The full key is shown once — save it securely.
+
+    Example:
+        installm auth create --label "dev-laptop"
+    """
+    from installm.auth import create_key
+
+    full_key, key_id = create_key(label)
+    click.echo(f">> New API key created (ID: {key_id})")
+    click.echo(f"   Key: {full_key}")
+    click.echo("   Save this key — it will not be shown again.")
+    click.echo(f"\n   Usage: export OPENAI_API_KEY={full_key}")
+
+
+@auth.command(name="revoke")
+@click.argument("key_id")
+def auth_revoke(key_id):
+    """Revoke an API key by its short ID.
+
+    Example:
+        installm auth revoke a1b2c3d4
+    """
+    from installm.auth import revoke_key
+
+    if revoke_key(key_id):
+        click.echo(f">> Key {key_id} revoked.")
+    else:
+        click.echo(f">> Key {key_id} not found.")
+
+
+@auth.command(name="ls")
+def auth_list():
+    """List all active API keys (shows prefix only)."""
+    from installm.auth import list_keys
+
+    keys = list_keys()
+    if not keys:
+        click.echo("No API keys configured. Run: installm auth create")
+        return
+
+    click.echo(f"{'ID':<12} {'Prefix':<25} {'Label':<20} {'Created'}")
+    click.echo("-" * 75)
+    for kid, info in keys.items():
+        import time as _t
+        created = _t.strftime("%Y-%m-%d %H:%M", _t.localtime(info["created_at"]))
+        click.echo(f"{kid:<12} {info['prefix']:<25} {info.get('label', ''):<20} {created}")
 
 
 if __name__ == "__main__":

@@ -180,7 +180,44 @@ installm up --model Qwen/Qwen2.5-7B-Instruct --model mistralai/Mistral-7B-Instru
 
 Both models are accessible through the same API — the gateway routes requests based on the `model` field.
 
-### 8. Framework Compatibility
+### 8. Authentication
+
+InstaLLM supports optional API key authentication that mirrors the OpenAI API pattern:
+
+```bash
+# Generate a key
+installm auth create --label "dev-laptop"
+# >> Key: sk-installm-a1b2c3d4...  (save this!)
+
+# Start the server with auth enabled
+installm up --model Qwen/Qwen2.5-7B-Instruct --require-auth
+
+# Or enable via environment variable
+export INSTALLM_REQUIRE_AUTH=1
+installm up --model Qwen/Qwen2.5-7B-Instruct
+```
+
+Clients authenticate exactly like they do with OpenAI — the `api_key` parameter just works:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://localhost:8000/v1",
+    api_key="sk-installm-a1b2c3d4...",  # Your generated key
+)
+```
+
+Key management:
+
+```bash
+installm auth ls        # List active keys (prefix only)
+installm auth revoke <id>  # Revoke a key
+```
+
+When auth is not enabled (the default), all requests pass through without any key — fully backward compatible.
+
+### 9. Framework Compatibility
 
 InstaLLM works with any framework that supports the OpenAI API:
 
@@ -220,6 +257,9 @@ llm = LLM(
 | `installm logs` | Show recent server logs |
 | `installm alias <name> <model_id>` | Create a short alias for a model ID |
 | `installm unalias <name>` | Remove a model alias |
+| `installm auth create [--label]` | Generate a new API key |
+| `installm auth ls` | List active API keys (prefix only) |
+| `installm auth revoke <id>` | Revoke an API key |
 
 ### `installm up` options
 
@@ -229,6 +269,7 @@ llm = LLM(
 | `--host` | `0.0.0.0` | Bind address |
 | `--port` | `8000` | Port number |
 | `--backend` | auto | Force a backend: `transformers`, `vllm`, `ollama`, or `llamacpp` |
+| `--require-auth` | off | Require API key authentication for all requests |
 
 ---
 
@@ -308,7 +349,8 @@ docker compose up
 ```
 src/installm/
 ├── __init__.py          # Version
-├── cli.py               # Click CLI (up, down, ls, pull, alias, unalias, logs)
+├── auth.py              # API key generation, hashing, validation
+├── cli.py               # Click CLI (up, down, ls, pull, alias, auth, logs)
 ├── config.py            # State manifest, aliases (~/.installm/state.json)
 ├── download.py          # HuggingFace Hub integration
 ├── backends/
@@ -321,6 +363,7 @@ src/installm/
 └── gateway/
     ├── __init__.py
     ├── app.py           # FastAPI app, backend registry, server launcher
+    ├── middleware.py     # Auth middleware (Bearer token validation)
     ├── schemas.py       # Pydantic models (OpenAI contract)
     ├── streaming.py     # SSE helpers
     ├── tools.py         # Tool calling prompt injection and parsing
@@ -372,6 +415,7 @@ pytest tests/ -v
 | `test_gateway/test_embeddings.py` | Embeddings endpoint |
 | `test_gateway/test_responses.py` | Responses API (non-streaming, streaming events) |
 | `test_gateway/test_tools_and_structured.py` | Tool prompt builder, JSON parser, validate-and-retry |
+| `test_auth.py` | Key CRUD, validation, middleware (401/200), CLI commands |
 | `test_integration_live.py` | Live test with tiny-gpt2 model |
 | `test_e2e_qwen.py` | Full e2e with OpenAI SDK, LangChain, tool calling, JSON mode |
 
@@ -379,7 +423,7 @@ pytest tests/ -v
 
 ## Future Work
 
-- **API Key Authentication** — per-key rate limiting and access control
+- **Per-key rate limiting** — throttle requests per API key
 - **Prometheus Metrics** — `/metrics` endpoint for monitoring
 - **Model Routing** — route requests to different models based on rules
 - **Observability Dashboard** — request logs, latency metrics, token usage
