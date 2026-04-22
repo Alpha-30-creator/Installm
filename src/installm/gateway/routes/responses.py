@@ -9,7 +9,8 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from installm.gateway.schemas import ResponsesRequest
-from installm.gateway.app import get_backends
+from installm.gateway.tools import build_tool_prompt, parse_tool_call
+from installm.gateway.app import resolve_model
 
 router = APIRouter()
 
@@ -44,8 +45,7 @@ def _gen_kwargs(req: ResponsesRequest) -> dict:
 @router.post("/v1/responses")
 async def create_response(req: ResponsesRequest):
     """Handle Responses API requests with semantic streaming events."""
-    backends = get_backends()
-    backend = backends.get(req.model)
+    backend = resolve_model(req.model)
     if backend is None:
         raise HTTPException(
             status_code=404,
@@ -55,6 +55,11 @@ async def create_response(req: ResponsesRequest):
     messages = _build_messages(req)
     gen_kwargs = _gen_kwargs(req)
 
+    # Inject tool prompt for backends without native tool support
+    if req.tools and not backend.supports_tools:
+        tool_system = build_tool_prompt(req.tools)
+        messages = [{"role": "system", "content": tool_system}] + messages
+
     if req.stream:
         return StreamingResponse(
             _stream_events(backend, req, messages, gen_kwargs),
@@ -62,11 +67,58 @@ async def create_response(req: ResponsesRequest):
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
-    # Non-streaming: collect all events and return final response object
+    # Non-streaming: generate and build response object
     response_id = f"resp_{uuid.uuid4().hex[:12]}"
-    result = await backend.generate(messages, **gen_kwargs)
+
+    if req.tools and backend.supports_tools:
+        result = await backend.generate(
+            messages,
+            tools=[t.model_dump() for t in req.tools],
+            tool_choice=req.tool_choice if isinstance(req.tool_choice, str)
+                        else req.tool_choice.model_dump() if req.tool_choice else None,
+            **gen_kwargs,
+        )
+    else:
+        result = await backend.generate(messages, **gen_kwargs)
+
     raw_msg = result["choices"][0]["message"]
     content = raw_msg.get("content") or ""
+    output_items = []
+
+    # Check for native tool calls from backend
+    tool_calls = raw_msg.get("tool_calls")
+    if tool_calls:
+        for tc in tool_calls:
+            output_items.append({
+                "type": "function_call",
+                "id": tc.get("id", f"fc_{uuid.uuid4().hex[:8]}"),
+                "call_id": tc.get("id", f"call_{uuid.uuid4().hex[:8]}"),
+                "name": tc["function"]["name"],
+                "arguments": tc["function"]["arguments"],
+                "status": "completed",
+            })
+    elif req.tools and not backend.supports_tools:
+        # Try to parse tool call from content (fallback)
+        parsed = parse_tool_call(content)
+        if parsed:
+            output_items.append({
+                "type": "function_call",
+                "id": f"fc_{uuid.uuid4().hex[:8]}",
+                "call_id": parsed.id,
+                "name": parsed.function.name,
+                "arguments": parsed.function.arguments,
+                "status": "completed",
+            })
+            content = ""  # Clear content since it was a tool call
+
+    # Add message item if there is text content
+    if content or not output_items:
+        output_items.insert(0, {
+            "type": "message",
+            "id": f"msg_{uuid.uuid4().hex[:8]}",
+            "role": "assistant",
+            "content": [{"type": "output_text", "text": content}],
+        })
 
     return {
         "id": response_id,
@@ -74,14 +126,7 @@ async def create_response(req: ResponsesRequest):
         "created_at": int(time.time()),
         "model": req.model,
         "status": "completed",
-        "output": [
-            {
-                "type": "message",
-                "id": f"msg_{uuid.uuid4().hex[:8]}",
-                "role": "assistant",
-                "content": [{"type": "output_text", "text": content}],
-            }
-        ],
+        "output": output_items,
         "usage": result.get("usage"),
     }
 
@@ -127,6 +172,9 @@ async def _stream_events(
 
     # Stream content deltas
     full_text = ""
+    tool_args_buffer = ""
+    has_tool_calls = False
+
     async for chunk in backend.stream(messages, **gen_kwargs):
         choices = chunk.get("choices", [])
         if not choices:
@@ -144,21 +192,34 @@ async def _stream_events(
             })
 
         if tool_calls:
+            has_tool_calls = True
             for tc_delta in tool_calls:
+                args_chunk = tc_delta.get("function", {}).get("arguments", "")
+                tool_args_buffer += args_chunk
                 yield _event("response.function_call_arguments.delta", {
                     "response_id": response_id,
                     "item_id": item_id,
-                    "delta": tc_delta.get("function", {}).get("arguments", ""),
+                    "delta": args_chunk,
                 })
 
+    # Emit done events for tool calls if any
+    if has_tool_calls:
+        yield _event("response.function_call_arguments.done", {
+            "response_id": response_id,
+            "item_id": item_id,
+            "arguments": tool_args_buffer,
+        })
+
     # response.output_text.done
-    yield _event("response.output_text.done", {
-        "response_id": response_id,
-        "item_id": item_id,
-        "text": full_text,
-    })
+    if full_text:
+        yield _event("response.output_text.done", {
+            "response_id": response_id,
+            "item_id": item_id,
+            "text": full_text,
+        })
 
     # response.output_item.done
+    output_content = [{"type": "output_text", "text": full_text}] if full_text else []
     yield _event("response.output_item.done", {
         "response_id": response_id,
         "item": {
@@ -166,7 +227,7 @@ async def _stream_events(
             "type": "message",
             "role": "assistant",
             "status": "completed",
-            "content": [{"type": "output_text", "text": full_text}],
+            "content": output_content,
         },
     })
 
@@ -180,5 +241,5 @@ async def _stream_events(
         }
     })
 
-    # Terminal marker (some clients expect this)
+    # Terminal marker
     yield "data: [DONE]\n\n"

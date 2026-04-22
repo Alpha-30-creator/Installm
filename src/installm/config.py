@@ -20,9 +20,14 @@ def _ensure_dir():
 def load_state() -> dict:
     """Load the state manifest from disk. Returns empty state if none exists."""
     if not STATE_FILE.exists():
-        return {"models": {}, "server": None}
+        return {"models": {}, "aliases": {}, "server": None}
+    state = {}
     with open(STATE_FILE, "r") as f:
-        return json.load(f)
+        state = json.load(f)
+    # Ensure aliases key exists (backward compat)
+    if "aliases" not in state:
+        state["aliases"] = {}
+    return state
 
 
 def save_state(state: dict):
@@ -53,6 +58,10 @@ def remove_model(model_id: str) -> bool:
     state = load_state()
     if model_id in state["models"]:
         del state["models"][model_id]
+        # Also remove any aliases pointing to this model
+        state["aliases"] = {
+            a: m for a, m in state["aliases"].items() if m != model_id
+        }
         save_state(state)
         return True
     return False
@@ -63,6 +72,46 @@ def list_models() -> dict:
     state = load_state()
     return state.get("models", {})
 
+
+# --- Alias management ---
+
+def set_alias(alias: str, model_id: str):
+    """Map a short alias to a canonical model ID.
+
+    Example: set_alias("llama", "meta-llama/Llama-3.1-8B-Instruct")
+    """
+    state = load_state()
+    state["aliases"][alias] = model_id
+    save_state(state)
+
+
+def remove_alias(alias: str) -> bool:
+    """Remove an alias. Returns True if it existed."""
+    state = load_state()
+    if alias in state["aliases"]:
+        del state["aliases"][alias]
+        save_state(state)
+        return True
+    return False
+
+
+def resolve_alias(name: str) -> str:
+    """Resolve a model name or alias to a canonical model ID.
+
+    If `name` is an alias, returns the canonical model ID.
+    Otherwise returns `name` unchanged.
+    """
+    state = load_state()
+    return state.get("aliases", {}).get(name, name)
+
+
+def list_aliases() -> dict:
+    """Return all aliases as {alias: model_id}."""
+    state = load_state()
+    return state.get("aliases", {})
+
+
+# --- Server info ---
 
 def set_server_info(host: str, port: int, pid: Optional[int] = None):
     """Record the running server's connection info."""

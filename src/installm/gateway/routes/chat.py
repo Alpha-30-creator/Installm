@@ -15,15 +15,14 @@ from installm.gateway.schemas import (
 )
 from installm.gateway.tools import build_tool_prompt, parse_tool_call
 from installm.gateway.structured import generate_with_retry
-from installm.gateway.app import get_backends
+from installm.gateway.app import resolve_model
 
 router = APIRouter()
 
 
 def _resolve_backend(model_id: str):
-    """Look up the backend for a model, raising 404 if not found."""
-    backends = get_backends()
-    backend = backends.get(model_id)
+    """Look up the backend for a model (supports aliases), raising 404 if not found."""
+    backend = resolve_model(model_id)
     if backend is None:
         raise HTTPException(
             status_code=404,
@@ -137,7 +136,8 @@ async def chat_completions(req: ChatRequest):
             return _adapt_backend_response(result, req.model)
         else:
             msg = await _handle_tools_fallback(backend, messages, req, gen_kwargs)
-            return _build_response(req.model, msg)
+            finish = "tool_calls" if msg.tool_calls else "stop"
+            return _build_response(req.model, msg, finish_reason=finish)
 
     # Plain generation
     result = await backend.generate(messages, **gen_kwargs)
@@ -189,12 +189,12 @@ async def _stream_response(
     yield "data: [DONE]\n\n"
 
 
-def _build_response(model: str, msg: Message) -> ChatResponse:
+def _build_response(model: str, msg: Message, finish_reason: str = "stop") -> ChatResponse:
     """Wrap a Message in a ChatResponse."""
     return ChatResponse(
         id=f"chatcmpl-{uuid.uuid4().hex[:8]}",
         model=model,
-        choices=[Choice(index=0, message=msg, finish_reason="stop")],
+        choices=[Choice(index=0, message=msg, finish_reason=finish_reason)],
     )
 
 

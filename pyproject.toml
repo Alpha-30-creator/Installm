@@ -33,9 +33,12 @@ transformers = [
 vllm = [
     "vllm>=0.4",
 ]
+llamacpp = [
+    "llama-cpp-python>=0.2",
+]
 ollama = []
 all = [
-    "installm[transformers,vllm]",
+    "installm[transformers,vllm,llamacpp]",
 ]
 dev = [
     "pytest>=8.0",

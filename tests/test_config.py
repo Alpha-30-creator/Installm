@@ -10,7 +10,7 @@ from installm.config import (
 def test_load_empty_state(isolated_state):
     """Fresh state should have empty models and no server."""
     state = load_state()
-    assert state == {"models": {}, "server": None}
+    assert state == {"models": {}, "aliases": {}, "server": None}
 
 
 def test_save_and_load(isolated_state):
@@ -18,7 +18,10 @@ def test_save_and_load(isolated_state):
     state = {"models": {"gpt2": {"model_id": "gpt2"}}, "server": None}
     save_state(state)
     loaded = load_state()
-    assert loaded == state
+    # load_state adds aliases key for backward compat
+    assert loaded["models"] == state["models"]
+    assert loaded["server"] == state["server"]
+    assert loaded["aliases"] == {}
 
 
 def test_add_model(isolated_state):

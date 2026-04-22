@@ -1,31 +1,24 @@
 # InstaLLM
 
-**One command. Any open-source model. OpenAI-compatible API.**
+**One-command deployment of OpenAI-compatible APIs for open-source LLMs.**
 
-InstaLLM is a developer tool that deploys any open-source large language model as a production-ready, OpenAI-compatible REST API. If you are building an AI application and want to use open-source models instead of (or alongside) commercial APIs, InstaLLM removes all the infrastructure boilerplate so you can focus on your application.
+InstaLLM is a developer tool that turns any open-source large language model into a production-ready API server with a single CLI command. It is designed for developers building AI applications who want the flexibility of open-source models with the convenience of the OpenAI API contract.
 
 ```bash
-# Install
 pip install installm
-
-# Pull a model and start the API server
-installm up --model meta-llama/Llama-3.1-8B-Instruct
-
-# Your app now talks to http://localhost:8000 — no code changes needed
+installm up --model Qwen/Qwen2.5-7B-Instruct
 ```
 
----
+Your API is now live at `http://localhost:8000`. Point any OpenAI SDK or LangChain app at it:
 
-## Why InstaLLM?
-
-Building AI applications with open-source models is powerful but painful. You need to:
-
-1. Choose and configure an inference engine (vLLM, Transformers, Ollama...)
-2. Write a server that exposes the model as an HTTP API
-3. Implement streaming, tool calling, and structured outputs yourself
-4. Make sure all of this works with your AI framework (LangChain, CrewAI, OpenAI SDK...)
-
-InstaLLM handles all of this with a single command. It auto-selects the best backend for your hardware and exposes a fully OpenAI-compatible API, so any code written against the OpenAI SDK works unchanged.
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://localhost:8000/v1", api_key="unused")
+response = client.chat.completions.create(
+    model="Qwen/Qwen2.5-7B-Instruct",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+```
 
 ---
 
@@ -35,30 +28,35 @@ InstaLLM handles all of this with a single command. It auto-selects the best bac
 |:---|:---|
 | **One-command deployment** | `installm up --model <model>` — that's it |
 | **OpenAI-compatible API** | Drop-in replacement: change `base_url`, keep all your code |
-| **Auto backend selection** | vLLM on Linux+GPU, Transformers on CPU/MPS, Ollama as fallback |
+| **Four backends** | vLLM (GPU), Transformers (CPU/MPS/CUDA), llama.cpp (GGUF), Ollama |
+| **Auto backend selection** | Picks the best backend for your hardware automatically |
 | **SSE Streaming** | Real-time token streaming via Server-Sent Events |
-| **Tool Calling** | Native for capable backends; prompt-and-parse fallback for others |
-| **Structured Outputs** | `json_object` and `json_schema` with validate-and-retry loop |
-| **Responses API** | OpenAI Responses API with semantic streaming events |
-| **Multi-model** | Run multiple models simultaneously on different ports |
-| **Docker support** | Single container deployment, GPU-ready |
+| **Tool Calling** | Native for vLLM/Ollama; prompt-and-parse fallback for Transformers/llama.cpp |
+| **Structured Outputs** | `json_object` and `json_schema` with validate-and-retry fallback |
+| **Responses API** | Semantic streaming events following the Open Responses spec |
+| **Multi-model** | Deploy multiple models simultaneously, gateway routes by `model` field |
+| **Model Aliases** | Map short names to long model IDs for convenience |
+| **Docker support** | CPU and GPU Dockerfiles included |
 
 ---
 
 ## Installation
 
 ```bash
-# Core install (Ollama backend only)
+# Base install (Ollama backend only, Ollama must be installed separately)
 pip install installm
 
-# With Transformers backend (CPU/MPS/CUDA)
+# With Transformers backend (CPU / MPS / CUDA)
 pip install "installm[transformers]"
 
 # With vLLM backend (Linux + NVIDIA GPU only)
 pip install "installm[vllm]"
 
+# With llama.cpp backend (GGUF models)
+pip install "installm[llamacpp]"
+
 # Everything
-pip install "installm[transformers,vllm]"
+pip install "installm[transformers,vllm,llamacpp]"
 ```
 
 **Requirements:** Python 3.11+
@@ -71,13 +69,13 @@ pip install "installm[transformers,vllm]"
 
 ```bash
 # Auto-selects the best backend for your hardware
-installm up --model meta-llama/Llama-3.1-8B-Instruct
+installm up --model Qwen/Qwen2.5-7B-Instruct
 
 # Force a specific backend
-installm up --model meta-llama/Llama-3.1-8B-Instruct --backend transformers
+installm up --model Qwen/Qwen2.5-7B-Instruct --backend transformers
 
 # Custom host and port
-installm up --model mistralai/Mistral-7B-Instruct-v0.3 --host 0.0.0.0 --port 8080
+installm up --model Qwen/Qwen2.5-7B-Instruct --host 0.0.0.0 --port 8080
 ```
 
 ### 2. Use it — no code changes needed
@@ -89,7 +87,7 @@ from openai import OpenAI
 client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
 
 response = client.chat.completions.create(
-    model="meta-llama/Llama-3.1-8B-Instruct",
+    model="Qwen/Qwen2.5-7B-Instruct",
     messages=[{"role": "user", "content": "Explain transformers in one paragraph."}],
 )
 print(response.choices[0].message.content)
@@ -99,7 +97,7 @@ print(response.choices[0].message.content)
 
 ```python
 stream = client.chat.completions.create(
-    model="meta-llama/Llama-3.1-8B-Instruct",
+    model="Qwen/Qwen2.5-7B-Instruct",
     messages=[{"role": "user", "content": "Write a haiku about open-source AI."}],
     stream=True,
 )
@@ -124,7 +122,7 @@ tools = [{
 }]
 
 response = client.chat.completions.create(
-    model="meta-llama/Llama-3.1-8B-Instruct",
+    model="Qwen/Qwen2.5-7B-Instruct",
     messages=[{"role": "user", "content": "What's the weather in Hong Kong?"}],
     tools=tools,
     tool_choice="auto",
@@ -139,7 +137,7 @@ print(tool_call.function.name, tool_call.function.arguments)
 import json
 
 response = client.chat.completions.create(
-    model="meta-llama/Llama-3.1-8B-Instruct",
+    model="Qwen/Qwen2.5-7B-Instruct",
     messages=[{"role": "user", "content": "Give me a person with name and age"}],
     response_format={
         "type": "json_schema",
@@ -160,7 +158,29 @@ person = json.loads(response.choices[0].message.content)
 print(person)  # {"name": "Alice", "age": 30}
 ```
 
-### 6. Framework Compatibility
+### 6. Model Aliases
+
+```bash
+# Create a short alias for a long model ID
+installm alias qwen Qwen/Qwen2.5-7B-Instruct
+
+# Now use the alias in API calls
+curl http://localhost:8000/v1/chat/completions \
+  -d '{"model": "qwen", "messages": [{"role": "user", "content": "Hi"}]}'
+
+# Remove an alias
+installm unalias qwen
+```
+
+### 7. Multi-model Serving
+
+```bash
+installm up --model Qwen/Qwen2.5-7B-Instruct --model mistralai/Mistral-7B-Instruct-v0.3
+```
+
+Both models are accessible through the same API — the gateway routes requests based on the `model` field.
+
+### 8. Framework Compatibility
 
 InstaLLM works with any framework that supports the OpenAI API:
 
@@ -171,7 +191,7 @@ from langchain_openai import ChatOpenAI
 llm = ChatOpenAI(
     base_url="http://localhost:8000/v1",
     api_key="not-needed",
-    model="meta-llama/Llama-3.1-8B-Instruct",
+    model="Qwen/Qwen2.5-7B-Instruct",
 )
 print(llm.invoke("What is InstaLLM?").content)
 ```
@@ -181,7 +201,7 @@ print(llm.invoke("What is InstaLLM?").content)
 from crewai import LLM
 
 llm = LLM(
-    model="openai/meta-llama/Llama-3.1-8B-Instruct",
+    model="openai/Qwen/Qwen2.5-7B-Instruct",
     base_url="http://localhost:8000/v1",
     api_key="not-needed",
 )
@@ -191,102 +211,94 @@ llm = LLM(
 
 ## CLI Reference
 
-```
-installm up       Start the API server for a model
-installm down     Stop the running server
-installm ls       List loaded models and server status
-installm pull     Download a model from HuggingFace Hub
-installm logs     Tail the server log
-```
+| Command | Description |
+|:---|:---|
+| `installm up --model <id> [--model <id>...]` | Pull model(s) and start the API server |
+| `installm pull --model <id>` | Download a model without starting the server |
+| `installm ls` | List all downloaded models and aliases |
+| `installm down` | Stop the running server |
+| `installm logs` | Show recent server logs |
+| `installm alias <name> <model_id>` | Create a short alias for a model ID |
+| `installm unalias <name>` | Remove a model alias |
 
-### `installm up`
+### `installm up` options
 
-```
-Options:
-  --model TEXT      HuggingFace model ID or local path  [required]
-  --backend TEXT    Backend: auto | transformers | vllm | ollama  [default: auto]
-  --host TEXT       Bind host  [default: 127.0.0.1]
-  --port INTEGER    Bind port  [default: 8000]
-  --help            Show this message and exit.
-```
-
-### `installm pull`
-
-```
-Options:
-  --model TEXT      HuggingFace model ID to download  [required]
-  --revision TEXT   Specific revision/branch  [default: main]
-  --help            Show this message and exit.
-```
+| Option | Default | Description |
+|:---|:---|:---|
+| `--model`, `-m` | (required) | HuggingFace model ID (repeatable for multi-model) |
+| `--host` | `0.0.0.0` | Bind address |
+| `--port` | `8000` | Port number |
+| `--backend` | auto | Force a backend: `transformers`, `vllm`, `ollama`, or `llamacpp` |
 
 ---
 
 ## API Reference
 
-InstaLLM exposes a fully OpenAI-compatible REST API. All endpoints accept and return JSON.
-
-### `GET /health`
-
-```json
-{"status": "ok", "models_loaded": 1}
-```
-
-### `GET /v1/models`
-
-Returns all loaded models in OpenAI format.
-
-### `POST /v1/chat/completions`
-
-Full OpenAI Chat Completions API. Supports:
-- `stream: true` — Server-Sent Events streaming
-- `tools` + `tool_choice` — function/tool calling
-- `response_format` — `json_object` or `json_schema`
-
-### `POST /v1/embeddings`
-
-Generate text embeddings (requires an embedding-capable model).
-
-### `POST /v1/responses`
-
-OpenAI Responses API with semantic streaming events:
-`response.created` → `response.in_progress` → `response.output_item.added` → `response.output_text.delta` (×N) → `response.output_text.done` → `response.output_item.done` → `response.completed`
+| Endpoint | Method | Description |
+|:---|:---|:---|
+| `/health` | GET | Liveness check |
+| `/v1/models` | GET | List loaded models and aliases (OpenAI format) |
+| `/v1/chat/completions` | POST | Chat completion (streaming and non-streaming) |
+| `/v1/embeddings` | POST | Text embeddings |
+| `/v1/responses` | POST | Responses API with semantic streaming events |
 
 ---
 
 ## Backends
 
-InstaLLM auto-selects the best backend based on your hardware. You can also specify one explicitly with `--backend`.
+InstaLLM auto-selects the best available backend in this order:
 
-| Backend | Platform | Hardware | Best For |
-|:---|:---|:---|:---|
-| `vllm` | Linux only | NVIDIA GPU | Production, high throughput |
-| `transformers` | Any | CPU / MPS / CUDA | Development, any hardware |
-| `ollama` | Any | CPU / GPU | If Ollama is already installed |
+1. **vLLM** — highest throughput, requires Linux + NVIDIA GPU with CUDA
+2. **Transformers** — universal, works on CPU / Apple MPS / CUDA
+3. **llama.cpp** — efficient GGUF inference, works on CPU and GPU
+4. **Ollama** — requires Ollama to be installed separately
 
-**Auto-selection order:** vLLM (Linux + CUDA) → Transformers → Ollama
+You can force a specific backend with `--backend`:
 
-### Platform Notes
+```bash
+installm up --model Qwen/Qwen2.5-7B-Instruct --backend transformers
+```
 
-- **Windows:** vLLM is not supported. InstaLLM will automatically fall back to the Transformers backend and notify you.
-- **macOS (Apple Silicon):** Transformers backend uses MPS acceleration automatically.
-- **Linux + NVIDIA GPU:** vLLM is used by default for maximum throughput.
+### Backend capabilities
+
+| Feature | vLLM | Transformers | llama.cpp | Ollama |
+|:---|:---:|:---:|:---:|:---:|
+| Native tool calling | Yes | No (fallback) | No (fallback) | Yes |
+| Native structured output | Yes | No (fallback) | No (fallback) | Yes |
+| Streaming | Yes | Yes | Yes | Yes |
+| Embeddings | Yes | Yes | Yes | Yes |
+| GPU required | Yes | No | No | No |
+| Platform | Linux | All | All | All |
+
+### Platform notes
+
+- **vLLM** raises a clear error on Windows/macOS or when no CUDA GPU is detected
+- **Transformers** auto-detects CUDA > MPS > CPU
+- **llama.cpp** works with GGUF model files; auto-resolves from HuggingFace cache
+- **Ollama** requires the Ollama daemon to be running (`ollama serve`)
 
 ---
 
 ## Docker
 
+### CPU
+
 ```bash
-# Build and run (CPU)
 docker build -t installm .
-docker run -p 8000:8000 \
-  -v ~/.cache/huggingface:/root/.cache/huggingface \
-  installm up --model sshleifer/tiny-gpt2 --host 0.0.0.0
+docker run -p 8000:8000 installm up --model Qwen/Qwen2.5-0.5B-Instruct
+```
 
-# With docker-compose
-MODEL=meta-llama/Llama-3.1-8B-Instruct docker compose up
+### GPU (NVIDIA)
 
-# GPU variant
-MODEL=meta-llama/Llama-3.1-8B-Instruct docker compose --profile gpu up
+```bash
+docker build --build-arg BASE=nvidia/cuda:12.1.0-runtime-ubuntu22.04 -t installm-gpu .
+docker run --gpus all -p 8000:8000 installm-gpu up --model Qwen/Qwen2.5-7B-Instruct
+```
+
+### Docker Compose
+
+```bash
+docker compose up
 ```
 
 ---
@@ -294,72 +306,83 @@ MODEL=meta-llama/Llama-3.1-8B-Instruct docker compose --profile gpu up
 ## Project Structure
 
 ```
-installm/
-├── src/installm/
-│   ├── cli.py              # Click CLI entry point
-│   ├── config.py           # State/manifest management (~/.installm/)
-│   ├── download.py         # HuggingFace Hub model download
-│   ├── backends/
-│   │   ├── base.py         # Backend abstract base class
-│   │   ├── __init__.py     # Auto-selection logic
-│   │   ├── transformers.py # HF Transformers backend
-│   │   ├── vllm.py         # vLLM backend (Linux + NVIDIA)
-│   │   └── ollama.py       # Ollama backend
-│   └── gateway/
-│       ├── app.py          # FastAPI app + server launcher
-│       ├── schemas.py      # Pydantic request/response schemas
-│       ├── streaming.py    # SSE helpers
-│       ├── tools.py        # Tool calling: prompt injection + parsing
-│       ├── structured.py   # Structured output: JSON enforcement + retry
-│       └── routes/
-│           ├── models.py   # GET /v1/models
-│           ├── chat.py     # POST /v1/chat/completions
-│           ├── embeddings.py # POST /v1/embeddings
-│           └── responses.py  # POST /v1/responses
-└── tests/
-    ├── test_config.py
-    ├── test_cli.py
-    ├── test_download.py
-    ├── test_backends/
-    │   ├── test_ollama.py
-    │   ├── test_transformers.py
-    │   └── test_vllm.py
-    ├── test_gateway/
-    │   ├── test_health.py
-    │   ├── test_models.py
-    │   ├── test_chat.py
-    │   ├── test_embeddings.py
-    │   ├── test_responses.py
-    │   └── test_tools_and_structured.py
-    └── test_integration_live.py   # Real model tests (requires torch + transformers)
+src/installm/
+├── __init__.py          # Version
+├── cli.py               # Click CLI (up, down, ls, pull, alias, unalias, logs)
+├── config.py            # State manifest, aliases (~/.installm/state.json)
+├── download.py          # HuggingFace Hub integration
+├── backends/
+│   ├── __init__.py      # Backend registry and auto-selection
+│   ├── base.py          # Abstract base class
+│   ├── transformers.py  # HF Transformers backend
+│   ├── vllm.py          # vLLM backend
+│   ├── llamacpp.py      # llama.cpp backend (GGUF)
+│   └── ollama.py        # Ollama backend
+└── gateway/
+    ├── __init__.py
+    ├── app.py           # FastAPI app, backend registry, server launcher
+    ├── schemas.py       # Pydantic models (OpenAI contract)
+    ├── streaming.py     # SSE helpers
+    ├── tools.py         # Tool calling prompt injection and parsing
+    ├── structured.py    # JSON mode and validate-and-retry
+    └── routes/
+        ├── __init__.py
+        ├── models.py    # GET /v1/models
+        ├── chat.py      # POST /v1/chat/completions
+        ├── embeddings.py# POST /v1/embeddings
+        └── responses.py # POST /v1/responses
 ```
 
 ---
 
-## Running Tests
+## Testing
 
 ```bash
-# Install dev dependencies
-pip install -e ".[dev]"
+# Install test dependencies
+pip install "installm[transformers]" pytest pytest-asyncio httpx
 
-# Run all unit tests (no model download required)
-pytest tests/ --ignore=tests/test_integration_live.py
+# Run unit tests (fast, no model download, no GPU needed)
+pytest tests/ --ignore=tests/test_integration_live.py --ignore=tests/test_e2e_qwen.py -v
 
-# Run live integration tests (downloads ~5MB model on first run)
-pytest tests/test_integration_live.py -v -s
+# Run live integration tests (downloads a 2.5MB test model)
+pytest tests/test_integration_live.py -v
+
+# Run full e2e tests with OpenAI SDK + LangChain (downloads Qwen2.5-0.5B)
+pytest tests/test_e2e_qwen.py -v
 
 # Run everything
-pytest tests/
+pytest tests/ -v
 ```
+
+### Test coverage
+
+| Test file | What it covers |
+|:---|:---|
+| `test_config.py` | State manifest CRUD, server info lifecycle |
+| `test_alias.py` | Alias set/remove/resolve, backward compat |
+| `test_cli.py` | CLI help, ls, pull commands |
+| `test_download.py` | HF Hub download, caching |
+| `test_backends/test_ollama.py` | Ollama backend (mocked) |
+| `test_backends/test_transformers.py` | Transformers backend (mocked) |
+| `test_backends/test_vllm.py` | vLLM backend (mocked) |
+| `test_backends/test_llamacpp.py` | llama.cpp backend (mocked) |
+| `test_gateway/test_health.py` | Health endpoint |
+| `test_gateway/test_models.py` | Models list endpoint |
+| `test_gateway/test_chat.py` | Chat completions (non-streaming, streaming, tools, structured) |
+| `test_gateway/test_embeddings.py` | Embeddings endpoint |
+| `test_gateway/test_responses.py` | Responses API (non-streaming, streaming events) |
+| `test_gateway/test_tools_and_structured.py` | Tool prompt builder, JSON parser, validate-and-retry |
+| `test_integration_live.py` | Live test with tiny-gpt2 model |
+| `test_e2e_qwen.py` | Full e2e with OpenAI SDK, LangChain, tool calling, JSON mode |
 
 ---
 
 ## Future Work
 
 - **API Key Authentication** — per-key rate limiting and access control
+- **Prometheus Metrics** — `/metrics` endpoint for monitoring
 - **Model Routing** — route requests to different models based on rules
 - **Observability Dashboard** — request logs, latency metrics, token usage
-- **llama.cpp backend** — ultra-low memory inference via GGUF models
 - **TensorRT-LLM backend** — NVIDIA-optimised inference for production
 
 ---

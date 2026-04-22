@@ -31,6 +31,20 @@ def get_backends() -> dict:
     return _backends
 
 
+def resolve_model(model_name: str):
+    """Resolve a model name (possibly an alias) and return (canonical_id, backend).
+
+    Returns the backend instance or None if not found.
+    """
+    # Direct match first
+    if model_name in _backends:
+        return _backends[model_name]
+    # Try alias resolution
+    from installm.config import resolve_alias
+    canonical = resolve_alias(model_name)
+    return _backends.get(canonical)
+
+
 def register_backend(model_id: str, backend):
     """Register a backend instance for a model."""
     _backends[model_id] = backend
@@ -92,6 +106,9 @@ def _create_backend(backend_name: str):
     elif backend_name == "vllm":
         from installm.backends.vllm import VLLMBackend
         return VLLMBackend()
+    elif backend_name == "llamacpp":
+        from installm.backends.llamacpp import LlamaCppBackend
+        return LlamaCppBackend()
     else:
         from installm.backends.transformers import TransformersBackend
         return TransformersBackend()

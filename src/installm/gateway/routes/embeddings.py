@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException
 
 from installm.gateway.schemas import EmbeddingRequest, EmbeddingResponse, EmbeddingObject, Usage
-from installm.gateway.app import get_backends
+from installm.gateway.app import resolve_model
 
 router = APIRouter()
 
@@ -11,8 +11,7 @@ router = APIRouter()
 @router.post("/v1/embeddings", response_model=EmbeddingResponse)
 async def create_embeddings(req: EmbeddingRequest):
     """Generate embeddings for the given input text(s)."""
-    backends = get_backends()
-    backend = backends.get(req.model)
+    backend = resolve_model(req.model)
     if backend is None:
         raise HTTPException(
             status_code=404,

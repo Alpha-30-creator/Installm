@@ -50,8 +50,22 @@ def parse_tool_call(text: str, timeout_chars: int = 4096) -> Optional[ToolCall]:
     if len(text) > timeout_chars:
         text = text[:timeout_chars]
 
-    # Find the start of a {"tool_call": ...} object
-    start = text.find('{"tool_call"')
+    # Find the start of a tool_call JSON object.
+    # The model may produce compact {"tool_call":...} or pretty-printed with
+    # newlines/spaces like {\n  "tool_call": ...}. We look for the opening
+    # brace that contains "tool_call" somewhere nearby.
+    idx = text.find('"tool_call"')
+    if idx == -1:
+        return None
+
+    # Walk backward from the key to find the opening brace
+    start = -1
+    for i in range(idx - 1, -1, -1):
+        if text[i] == '{':
+            start = i
+            break
+        elif text[i] not in (' ', '\t', '\n', '\r'):
+            break  # Non-whitespace before the key — not a valid JSON start
     if start == -1:
         return None
 

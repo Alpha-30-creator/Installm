@@ -6,6 +6,7 @@ from installm import __version__
 from installm.config import (
     list_models, get_server_info, clear_server_info,
     DEFAULT_HOST, DEFAULT_PORT,
+    set_alias, remove_alias, list_aliases,
 )
 
 
@@ -22,7 +23,7 @@ def cli():
               help="Bind address for the API server.")
 @click.option("--port", default=DEFAULT_PORT, type=int, show_default=True,
               help="Port for the API server.")
-@click.option("--backend", default=None, type=click.Choice(["ollama", "transformers", "vllm"]),
+@click.option("--backend", default=None, type=click.Choice(["ollama", "transformers", "vllm", "llamacpp"]),
               help="Force a specific backend (auto-detected if omitted).")
 def up(model, host, port, backend):
     """Download model(s) and start the API server.
@@ -75,18 +76,54 @@ def pull(model):
 
 @cli.command(name="ls")
 def list_cmd():
-    """List all downloaded models."""
+    """List all downloaded models and aliases."""
     models = list_models()
-    if not models:
+    aliases = list_aliases()
+
+    if not models and not aliases:
         click.echo("No models installed. Run: installm pull --model <model_id>")
         return
 
-    click.echo(f"{'Model ID':<40} {'Backend':<15} {'Status':<12}")
-    click.echo("-" * 67)
-    for mid, info in models.items():
-        be = info.get("backend") or "auto"
-        status = info.get("status", "unknown")
-        click.echo(f"{mid:<40} {be:<15} {status:<12}")
+    if models:
+        click.echo(f"{'Model ID':<40} {'Backend':<15} {'Status':<12}")
+        click.echo("-" * 67)
+        for mid, info in models.items():
+            be = info.get("backend") or "auto"
+            status = info.get("status", "unknown")
+            click.echo(f"{mid:<40} {be:<15} {status:<12}")
+
+    if aliases:
+        click.echo(f"\n{'Alias':<25} {'Model ID':<45}")
+        click.echo("-" * 70)
+        for alias, model_id in aliases.items():
+            click.echo(f"{alias:<25} {model_id:<45}")
+
+
+@cli.command()
+@click.argument("alias")
+@click.argument("model_id")
+def alias(alias, model_id):
+    """Create a short alias for a model ID.
+
+    Example:
+        installm alias llama meta-llama/Llama-3.1-8B-Instruct
+    """
+    set_alias(alias, model_id)
+    click.echo(f">> Alias '{alias}' -> '{model_id}'")
+
+
+@cli.command(name="unalias")
+@click.argument("alias")
+def unalias(alias):
+    """Remove a model alias.
+
+    Example:
+        installm unalias llama
+    """
+    if remove_alias(alias):
+        click.echo(f">> Removed alias '{alias}'.")
+    else:
+        click.echo(f">> Alias '{alias}' not found.")
 
 
 @cli.command()
