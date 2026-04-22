@@ -309,12 +309,14 @@ installm up --model Qwen/Qwen2.5-7B-Instruct --backend transformers
 
 | Feature | vLLM | Transformers | llama.cpp | Ollama |
 |:---|:---:|:---:|:---:|:---:|
-| Native tool calling | Yes | No (fallback) | No (fallback) | Yes |
-| Native structured output | Yes | No (fallback) | No (fallback) | Yes |
+| Tool calling | Native | Gateway | Gateway | Native |
+| Structured outputs | Native | Gateway | Gateway | Native |
 | Streaming | Yes | Yes | Yes | Yes |
 | Embeddings | Yes | Yes | Yes | Yes |
 | GPU required | Yes | No | No | No |
 | Platform | Linux | All | All | All |
+
+> **Native** means the inference engine enforces the constraint at the model level. **Gateway** means InstaLLM handles it transparently — tool calls are injected via a system prompt and parsed from the model output; structured outputs are validated against the schema with automatic retries. From the API caller's perspective, both modes are identical.
 
 ### Platform notes
 
