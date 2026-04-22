@@ -1,5 +1,9 @@
 # InstaLLM
 
+[![PyPI version](https://badge.fury.io/py/installm.svg)](https://pypi.org/project/installm/)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](https://opensource.org/licenses/MIT)
+
 **One-command deployment of OpenAI-compatible APIs for open-source LLMs.**
 
 InstaLLM is a developer tool that turns any open-source large language model into a production-ready API server with a single CLI command. It is designed for developers building AI applications who want the flexibility of open-source models with the convenience of the OpenAI API contract.
@@ -36,6 +40,7 @@ response = client.chat.completions.create(
 | **Responses API** | Semantic streaming events following the Open Responses spec |
 | **Multi-model** | Deploy multiple models simultaneously, gateway routes by `model` field |
 | **Model Aliases** | Map short names to long model IDs for convenience |
+| **API Key Authentication** | Optional Bearer token auth, OpenAI-compatible |
 | **Docker support** | CPU and GPU Dockerfiles included |
 
 ---
@@ -59,7 +64,7 @@ pip install "installm[llamacpp]"
 pip install "installm[transformers,vllm,llamacpp]"
 ```
 
-**Requirements:** Python 3.11+
+**Requirements:** Python 3.10+
 
 ---
 
