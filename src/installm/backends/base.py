@@ -1,7 +1,7 @@
 """Abstract base class for inference backends."""
 
 from abc import ABC, abstractmethod
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 
 class Backend(ABC):

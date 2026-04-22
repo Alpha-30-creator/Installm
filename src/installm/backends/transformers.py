@@ -60,13 +60,30 @@ class TransformersBackend(Backend):
         if self.tokenizer.pad_token is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
+    def _format_prompt(self, messages: list) -> str:
+        """Format messages into a prompt string.
+
+        Uses the tokenizer's chat template when available, otherwise falls back
+        to a simple role: content format that works with any model.
+        """
+        if self.tokenizer.chat_template is not None:
+            return self.tokenizer.apply_chat_template(
+                messages, tokenize=False, add_generation_prompt=True,
+            )
+        # Fallback for models without a chat template (e.g. base GPT-2)
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content") or ""
+            parts.append(f"{role}: {content}")
+        parts.append("assistant:")
+        return "\n".join(parts)
+
     async def generate(self, messages: list, **kwargs) -> dict:
         """Generate a complete response (non-streaming)."""
         import torch
 
-        prompt = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-        )
+        prompt = self._format_prompt(messages)
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
 
         max_tokens = kwargs.get("max_tokens", 512)
@@ -111,13 +128,10 @@ class TransformersBackend(Backend):
 
     async def stream(self, messages: list, **kwargs) -> AsyncIterator[dict]:
         """Yield response chunks using TextIteratorStreamer."""
-        import torch
         from threading import Thread
         from transformers import TextIteratorStreamer
 
-        prompt = self.tokenizer.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-        )
+        prompt = self._format_prompt(messages)
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
 
         max_tokens = kwargs.get("max_tokens", 512)

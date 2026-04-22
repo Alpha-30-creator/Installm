@@ -55,7 +55,6 @@ class VLLMBackend(Backend):
 
     async def generate(self, messages: list, **kwargs) -> dict:
         """Non-streaming generation via vLLM engine."""
-        from vllm import SamplingParams
 
         prompt = self._messages_to_prompt(messages)
         params = self._build_sampling_params(kwargs)
@@ -87,7 +86,6 @@ class VLLMBackend(Backend):
 
     async def stream(self, messages: list, **kwargs) -> AsyncIterator[dict]:
         """Streaming generation via vLLM engine."""
-        from vllm import SamplingParams
 
         prompt = self._messages_to_prompt(messages)
         params = self._build_sampling_params(kwargs)

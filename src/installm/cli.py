@@ -13,7 +13,6 @@ from installm.config import (
 @click.version_option(version=__version__, prog_name="installm")
 def cli():
     """InstaLLM - One-command deployment of OpenAI-compatible APIs for open-source LLMs."""
-    pass
 
 
 @cli.command()
