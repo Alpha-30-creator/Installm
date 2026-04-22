@@ -111,6 +111,45 @@ def list_aliases() -> dict:
     return state.get("aliases", {})
 
 
+# --- HuggingFace token management ---
+
+def save_hf_token(token: str):
+    """Save a HuggingFace API token to the local state file.
+
+    The token is stored in ~/.installm/state.json. This is a local
+    developer machine store — treat it with the same care as an SSH key.
+    """
+    state = load_state()
+    state["hf_token"] = token
+    save_state(state)
+
+
+def load_hf_token() -> Optional[str]:
+    """Return the saved HuggingFace token, or None if not set.
+
+    Resolution order:
+      1. HF_TOKEN environment variable (takes priority)
+      2. HUGGING_FACE_HUB_TOKEN environment variable
+      3. Token saved via `installm token set`
+    """
+    import os
+    env = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    if env:
+        return env
+    state = load_state()
+    return state.get("hf_token")
+
+
+def clear_hf_token() -> bool:
+    """Remove the saved HuggingFace token. Returns True if one existed."""
+    state = load_state()
+    if "hf_token" in state:
+        del state["hf_token"]
+        save_state(state)
+        return True
+    return False
+
+
 # --- Server info ---
 
 def set_server_info(host: str, port: int, pid: Optional[int] = None):

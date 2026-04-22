@@ -185,7 +185,35 @@ installm up --model Qwen/Qwen2.5-7B-Instruct --model mistralai/Mistral-7B-Instru
 
 Both models are accessible through the same API — the gateway routes requests based on the `model` field.
 
-### 8. Authentication
+### 8. Gated Models & HuggingFace Token
+
+Some models (Llama, Gemma, Mistral-large, etc.) require you to accept the model licence on [HuggingFace](https://huggingface.co) before downloading. Once accepted, generate a token at [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) and save it with InstaLLM:
+
+```bash
+# Save once — used automatically for all future downloads
+installm token set hf_xxxxxxxxxxxxxxxxxxxxxxxx
+
+# Check status
+installm token status
+
+# Remove saved token
+installm token clear
+```
+
+The token is stored in `~/.installm/state.json`. You can also pass it as a one-off flag or environment variable:
+
+```bash
+# One-off flag (not saved)
+installm up --model meta-llama/Llama-3.1-8B-Instruct --token hf_xxxx
+
+# Environment variable (always takes priority over saved token)
+export HF_TOKEN=hf_xxxx
+installm up --model meta-llama/Llama-3.1-8B-Instruct
+```
+
+Public models (Qwen, Phi, Mistral-7B, etc.) require no token at all.
+
+### 9. Authentication
 
 InstaLLM supports optional API key authentication that mirrors the OpenAI API pattern:
 
@@ -262,6 +290,9 @@ llm = LLM(
 | `installm logs` | Show recent server logs |
 | `installm alias <name> <model_id>` | Create a short alias for a model ID |
 | `installm unalias <name>` | Remove a model alias |
+| `installm token set <token>` | Save HuggingFace token for gated model downloads |
+| `installm token status` | Show whether a HuggingFace token is saved |
+| `installm token clear` | Remove the saved HuggingFace token |
 | `installm auth create [--label]` | Generate a new API key |
 | `installm auth ls` | List active API keys (prefix only) |
 | `installm auth revoke <id>` | Revoke an API key |
@@ -275,6 +306,7 @@ llm = LLM(
 | `--port` | `8000` | Port number |
 | `--backend` | auto | Force a backend: `transformers`, `vllm`, `ollama`, or `llamacpp` |
 | `--require-auth` | off | Require API key authentication for all requests |
+| `--token` | (saved/env) | HuggingFace token for gated models (one-off; use `installm token set` to save) |
 
 ---
 

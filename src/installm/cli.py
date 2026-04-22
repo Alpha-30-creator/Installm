@@ -7,6 +7,7 @@ from installm.config import (
     list_models, get_server_info, clear_server_info,
     DEFAULT_HOST, DEFAULT_PORT,
     set_alias, remove_alias, list_aliases,
+    save_hf_token, load_hf_token, clear_hf_token,
 )
 
 
@@ -27,7 +28,9 @@ def cli():
               help="Force a specific backend (auto-detected if omitted).")
 @click.option("--require-auth", is_flag=True, default=False,
               help="Require API key authentication for all requests.")
-def up(model, host, port, backend, require_auth):
+@click.option("--token", default=None, envvar="HF_TOKEN",
+              help="HuggingFace token for gated models (one-off; use 'installm token set' to save permanently).")
+def up(model, host, port, backend, require_auth, token):
     """Download model(s) and start the API server.
 
     Example:
@@ -39,10 +42,13 @@ def up(model, host, port, backend, require_auth):
     from installm.gateway.app import start_server
     from installm.config import add_model, set_server_info
 
+    # Resolve HF token: CLI flag > saved token > env var (handled by load_hf_token)
+    hf_token = token or load_hf_token()
+
     loaded = {}
     for m in model:
         click.echo(f">> Pulling {m}...")
-        path = pull_model(m)
+        path = pull_model(m, token=hf_token)
         click.echo(f"   Downloaded to {path}")
 
         be_name = backend or select_backend(m)
@@ -67,7 +73,9 @@ def up(model, host, port, backend, require_auth):
 @cli.command()
 @click.option("--model", "-m", required=True,
               help="Hugging Face model ID to download.")
-def pull(model):
+@click.option("--token", default=None, envvar="HF_TOKEN",
+              help="HuggingFace token for gated models (one-off; use 'installm token set' to save permanently).")
+def pull(model, token):
     """Download a model without starting the server.
 
     Example:
@@ -76,8 +84,9 @@ def pull(model):
     from installm.download import pull_model
     from installm.config import add_model
 
+    hf_token = token or load_hf_token()
     click.echo(f">> Pulling {model}...")
-    path = pull_model(model)
+    path = pull_model(model, token=hf_token)
     add_model(model)
     click.echo(f">> Done. Cached at {path}")
 
@@ -169,6 +178,66 @@ def logs():
         lines = f.readlines()
         for line in lines[-50:]:
             click.echo(line, nl=False)
+
+
+# --- HuggingFace token management ---
+
+@cli.group()
+def token():
+    """Manage your HuggingFace API token for gated models."""
+
+
+@token.command(name="set")
+@click.argument("hf_token")
+def token_set(hf_token):
+    """Save a HuggingFace token for gated model access.
+
+    The token is stored in ~/.installm/state.json and used automatically
+    by 'installm pull' and 'installm up' without needing to set HF_TOKEN.
+
+    Example:
+        installm token set hf_xxxxxxxxxxxxxxxxxxxxxxxx
+    """
+    save_hf_token(hf_token)
+    masked = hf_token[:8] + "..." + hf_token[-4:]
+    click.echo(f">> HuggingFace token saved ({masked}).")
+    click.echo("   It will be used automatically for all future model downloads.")
+
+
+@token.command(name="clear")
+def token_clear():
+    """Remove the saved HuggingFace token.
+
+    Example:
+        installm token clear
+    """
+    if clear_hf_token():
+        click.echo(">> HuggingFace token removed.")
+    else:
+        click.echo(">> No token was saved.")
+
+
+@token.command(name="status")
+def token_status():
+    """Show whether a HuggingFace token is currently saved.
+
+    Example:
+        installm token status
+    """
+    import os
+    env_token = os.environ.get("HF_TOKEN") or os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    saved_token = load_hf_token()
+
+    if env_token:
+        masked = env_token[:8] + "..." + env_token[-4:]
+        click.echo(f">> Token active via environment variable ({masked}).")
+    elif saved_token:
+        masked = saved_token[:8] + "..." + saved_token[-4:]
+        click.echo(f">> Token saved in ~/.installm/state.json ({masked}).")
+    else:
+        click.echo(">> No HuggingFace token configured.")
+        click.echo("   Run: installm token set <your_token>")
+        click.echo("   Or:  export HF_TOKEN=<your_token>")
 
 
 # --- Auth key management ---

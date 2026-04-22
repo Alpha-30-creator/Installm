@@ -9,7 +9,7 @@ def test_pull_model_calls_snapshot_download():
     with patch("installm.download.snapshot_download", return_value="/cache/gpt2") as mock_dl:
         path = pull_model("gpt2")
 
-    mock_dl.assert_called_once_with(repo_id="gpt2", revision=None)
+    mock_dl.assert_called_once_with(repo_id="gpt2", revision=None, token=None)
     assert path == "/cache/gpt2"
 
 
@@ -18,4 +18,4 @@ def test_pull_model_with_revision():
     with patch("installm.download.snapshot_download", return_value="/cache/gpt2") as mock_dl:
         pull_model("gpt2", revision="abc123")
 
-    mock_dl.assert_called_once_with(repo_id="gpt2", revision="abc123")
+    mock_dl.assert_called_once_with(repo_id="gpt2", revision="abc123", token=None)
