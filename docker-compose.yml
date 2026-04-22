@@ -1,0 +1,47 @@
+version: "3.9"
+
+services:
+  installm:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      # Cache HuggingFace models on the host to avoid re-downloading
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+    command: >
+      up
+      --model ${MODEL:-sshleifer/tiny-gpt2}
+      --backend ${BACKEND:-transformers}
+      --host 0.0.0.0
+      --port 8000
+    restart: unless-stopped
+
+  # GPU variant - uncomment and use with: docker compose --profile gpu up
+  installm-gpu:
+    build:
+      context: .
+      args:
+        BASE: nvidia/cuda:12.1.0-cudnn8-runtime-ubuntu22.04
+    profiles: [gpu]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ~/.cache/huggingface:/root/.cache/huggingface
+    environment:
+      - HF_TOKEN=${HF_TOKEN:-}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    command: >
+      up
+      --model ${MODEL:-meta-llama/Llama-3.1-8B-Instruct}
+      --backend vllm
+      --host 0.0.0.0
+      --port 8000
+    restart: unless-stopped
